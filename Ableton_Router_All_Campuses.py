@@ -95,12 +95,11 @@ VOLUME_REDUCTION_DB = -10  # Reduce volume by 10 dB
 
 # List of campuses (replace with your actual campus names if needed)
 CAMPUSES = [
-    "Main Campus",
-    "North Campus",
-    "South Campus",
-    "East Campus",
-    "West Campus",
-    "Central Campus"
+    "Apollo Beach",
+    "Apollo Beach Español",
+    "Brandon",
+    "Brandon Español",
+    "Riverview"
 ]
 
 def process_als(input_file_bytes, original_filename):
