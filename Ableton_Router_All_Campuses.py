@@ -6,7 +6,7 @@ import math
 import streamlit as st
 from io import BytesIO
 
-# Routing rules mapping track names to routing values
+# Routing rules mapping track names to routing values (same for all campuses)
 ROUTING_MAP = {
     "GUIDE": {"Target": "AudioOut/External/M0", "LowerDisplayString": "1"},
     "CUES": {"Target": "AudioOut/External/M0", "LowerDisplayString": "1"},
@@ -88,10 +88,20 @@ ROUTING_MAP = {
     "GANG": {"Target": "AudioOut/External/S2", "LowerDisplayString": "5/6"},
 }
 
-# Define tracks to mute and turn down
+# Define tracks to mute and turn down (same for all campuses)
 MUTE_TRACKS = {"BASS", "DRUMS", "AG", "ACOUSTIC", "ACOUSTIC GUITAR", "PIANO"}
 TURN_DOWN_TRACKS = {"CHOIR", "BGV", "BGVS", "GANG VOCALS", "VOCALS", "CHOIR 1", "CHOIR 2", "GANG"}
 VOLUME_REDUCTION_DB = -10  # Reduce volume by 10 dB
+
+# List of campuses (replace with your actual campus names if needed)
+CAMPUSES = [
+    "Main Campus",
+    "North Campus",
+    "South Campus",
+    "East Campus",
+    "West Campus",
+    "Central Campus"
+]
 
 def process_als(input_file_bytes, original_filename):
     """
@@ -225,10 +235,13 @@ def process_als(input_file_bytes, original_filename):
 # Streamlit app
 def main():
     st.title("Ableton Live Router")
-    st.write("Upload your Ableton Live (.als) files to route tracks according to predefined rules.")
+    st.write("Select a campus and upload your Ableton Live (.als) files to route tracks according to predefined rules.")
+
+    # Campus selection dropdown
+    selected_campus = st.selectbox("Select Campus", CAMPUSES)
 
     # File uploader
-    uploaded_files = st.file_uploader("Select Ableton Live (.als) Files", type=["als"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader(f"Select Ableton Live (.als) Files for {selected_campus}", type=["als"], accept_multiple_files=True)
 
     if uploaded_files:
         processed_count = 0
@@ -242,12 +255,12 @@ def main():
                 continue
 
             # Process the file
-            with st.spinner(f"Processing {original_filename}..."):
+            with st.spinner(f"Processing {original_filename} for {selected_campus}..."):
                 output_bytes, output_filename = process_als(file_bytes, original_filename)
 
             if output_bytes and output_filename:
                 processed_count += 1
-                st.success(f"Processed {original_filename} → {output_filename}")
+                st.success(f"Processed {original_filename} → {output_filename} for {selected_campus}")
 
                 # Provide a download button for the processed file
                 st.download_button(
@@ -257,12 +270,12 @@ def main():
                     mime="application/octet-stream"
                 )
             else:
-                st.error(f"Failed to process {original_filename}.")
+                st.error(f"Failed to process {original_filename} for {selected_campus}.")
 
         if processed_count > 0:
-            st.success(f"Processed {processed_count} files successfully.")
+            st.success(f"Processed {processed_count} files successfully for {selected_campus}.")
         else:
-            st.warning("No files were processed successfully.")
+            st.warning(f"No files were processed successfully for {selected_campus}.")
 
 if __name__ == "__main__":
     main()
