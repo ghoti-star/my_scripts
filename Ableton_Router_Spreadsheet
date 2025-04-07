@@ -5,35 +5,14 @@ import tempfile
 import math
 import streamlit as st
 from io import BytesIO
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-import json
 
-# Function to load Google Sheets credentials from Streamlit secrets
-def load_google_credentials():
+# Function to read the Google Sheet via CSV export
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def load_spreadsheet_data_csv():
     try:
-        # Load credentials from Streamlit secrets
-        credentials_json = st.secrets["GOOGLE_CREDENTIALS"]
-        credentials_dict = json.loads(credentials_json)
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keydict(credentials_dict, scope)
-        return creds
-    except Exception as e:
-        st.error(f"Failed to load Google Sheets credentials: {str(e)}")
-        return None
-
-# Function to read the Google Sheet and return a DataFrame
-@st.cache_data(ttl=600)  # Cache for 10 minutes to reduce API calls
-def load_spreadsheet_data():
-    try:
-        creds = load_google_credentials()
-        if not creds:
-            return None
-        client = gspread.authorize(creds)
-        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1v-ijfylVlbJB3qLJu-dXbFgdbeuWgJjOIj2umhcE9Q8/edit?usp=sharing").sheet1
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
+        url = "https://docs.google.com/spreadsheets/d/1v-ijfylVlbJB3qLJu-dXbFgdbeuWgJjOIj2umhcE9Q8/export?format=csv&gid=0"
+        df = pd.read_csv(url)
         return df
     except Exception as e:
         st.error(f"Failed to load spreadsheet data: {str(e)}")
@@ -198,9 +177,9 @@ def main():
     st.write("Select a campus and upload your Ableton Live (.als) files to route tracks according to the spreadsheet rules.")
 
     # Load spreadsheet data
-    df = load_spreadsheet_data()
+    df = load_spreadsheet_data_csv()
     if df is None:
-        st.error("Cannot proceed without spreadsheet data. Please check the logs and ensure the Google Sheets API is set up correctly.")
+        st.error("Cannot proceed without spreadsheet data. Please ensure the spreadsheet is publicly viewable and the URL is correct.")
         return
 
     # Extract campus names from the spreadsheet (excluding "Track Name" column)
