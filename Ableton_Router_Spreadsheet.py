@@ -94,13 +94,6 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                     except ValueError:
                         st.warning(f"Invalid dB value '{instruction}' for track '{track_name}' in campus '{selected_campus}'. Skipping volume adjustment.")
 
-                # Debug: Log the parsed values
-                st.write(f"Track: {track_name}, Campus: {selected_campus}")
-                st.write(f"  Routing: {channel}")
-                st.write(f"  Instruction: {instruction}")
-                st.write(f"  Mute: {mute}")
-                st.write(f"  dB Adjustment: {db_reduction}")
-
                 # Map the channel to Ableton Live target
                 routing_dict = map_channel_to_target(channel)
                 if routing_dict is None:
@@ -161,8 +154,8 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                     manual_speaker.set("Value", "false")
 
                 # --- Volume Adjustment Logic ---
-                # Only adjust the volume if db_reduction is specified
-                if db_reduction is not None:
+                # Only adjust the volume if db_reduction is specified and non-zero
+                if db_reduction is not None and db_reduction != 0.0:
                     volume = mixer.find("Volume")
                     if volume is None:
                         volume = ET.SubElement(mixer, "Volume")
@@ -182,21 +175,6 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                     # Convert back to linear
                     new_volume = 10 ** (new_db / 20) if new_db > -float('inf') else 0.0
                     manual_volume.set("Value", str(new_volume))
-                    # Debug: Log the volume change
-                    st.write(f"  Adjusted volume from {current_volume} ({current_db:.2f} dB) to {new_volume} ({new_db:.2f} dB)")
-                else:
-                    # Debug: Log the original volume if no adjustment is made
-                    volume = mixer.find("Volume")
-                    if volume is not None:
-                        manual_volume = volume.find("Manual")
-                        if manual_volume is not None:
-                            original_volume = float(manual_volume.get("Value"))
-                            original_db = 20 * math.log10(original_volume) if original_volume > 0 else -float('inf')
-                            st.write(f"  Volume unchanged: {original_volume} ({original_db:.2f} dB)")
-                        else:
-                            st.write("  Volume unchanged: No Manual volume node found")
-                    else:
-                        st.write("  Volume unchanged: No Volume node found")
 
             # Save modified XML
             tree.write(temp_modified_xml, encoding="utf-8", xml_declaration=True)
