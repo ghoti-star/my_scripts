@@ -45,7 +45,7 @@ def map_channel_to_target(channel):
     return channel_map[channel]
 
 # Function to process an .als file based on the selected campus
-def process_als(input_file_bytes, original_filename, selected_campus, df):
+def process_als(input_file_bytes, original_filename, selected_campus, df, campus_columns):
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_xml = os.path.join(temp_dir, "temp.xml")
@@ -59,6 +59,9 @@ def process_als(input_file_bytes, original_filename, selected_campus, df):
             # Parse XML
             tree = ET.parse(temp_xml)
             root = tree.getroot()
+
+            # Get the routing and instruction columns for the selected campus
+            routing_col, instruction_col = campus_columns[selected_campus]
 
             # Process each track
             for track_type in ["AudioTrack", "MidiTrack", "GroupTrack"]:
@@ -74,26 +77,29 @@ def process_als(input_file_bytes, original_filename, selected_campus, df):
                     if track_row.empty:
                         continue  # Skip if track not found in spreadsheet
 
-                    # Get the routing settings for the selected campus
-                    settings = track_row.iloc[0][selected_campus]
-                    if not settings:
-                        continue  # Skip if no settings for this campus
+                    # Get the routing channel and instruction for the selected campus
+                    routing = track_row.iloc[0][routing_col]
+                    instruction = track_row.iloc[0][instruction_col] if instruction_col in track_row else ""
 
-                    # Parse the settings (e.g., "5/6 Mute", "5/6 -10dB", "1")
-                    settings_parts = settings.split()
-                    channel = settings_parts[0]  # e.g., "5/6"
-                    mute = any(part.lower() == "mute" for part in settings_parts)  # Case-insensitive
+                    if not routing:
+                        continue  # Skip if no routing specified
+
+                    # Parse the routing and instruction
+                    channel = str(routing).strip()
+                    instruction = str(instruction).strip() if instruction else ""
+                    instruction_parts = instruction.split()
+                    mute = any(part.lower() == "mute" for part in instruction_parts)
                     # Look for a dB value (e.g., "-10dB", "-6dB")
                     db_reduction = None
-                    for part in settings_parts:
+                    for part in instruction_parts:
                         if part.lower().endswith("db"):
                             try:
                                 db_reduction = float(part.lower().replace("db", ""))
                                 break
                             except ValueError:
                                 continue
-                    # Fallback for "Turn down" (for backward compatibility until spreadsheet is updated)
-                    if db_reduction is None and any(part.lower() == "turn down" for part in settings_parts):
+                    # Fallback for "Turn down"
+                    if db_reduction is None and any(part.lower() == "turn down" for part in instruction_parts):
                         db_reduction = -10  # Default to -10 dB
 
                     # Map the channel to Ableton Live target
@@ -172,7 +178,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df):
                         # Convert current volume to dB
                         current_db = 20 * math.log10(current_volume) if current_volume > 0 else -float('inf')
                         # Apply the specified dB reduction
-                        new_db = current_db + db_reduction  # Note: db_reduction is negative (e.g., -10)
+                        new_db = current_db + db_reduction  # db_reduction is negative (e.g., -10)
                         # Convert back to linear
                         new_volume = 10 ** (new_db / 20) if new_db > -float('inf') else 0.0
                         manual_volume.set("Value", str(new_volume))
@@ -209,8 +215,18 @@ def main():
         st.error("Cannot proceed without spreadsheet data. Please ensure the spreadsheet is publicly viewable and the URL is correct.")
         return
 
-    # Extract campus names from the spreadsheet (excluding "Track Name" column, and skip blanks)
-    CAMPUSES = [campus for campus in df.columns[1:] if campus.strip() != ""]
+    # Extract campus names and their corresponding routing/instruction columns
+    # Each campus spans two columns: routing (e.g., B) and instruction (e.g., C)
+    all_columns = df.columns[1:]  # Skip "Track Name" column
+    CAMPUSES = []
+    campus_columns = {}
+    for i in range(0, len(all_columns), 2):  # Step by 2 to pair columns
+        routing_col = all_columns[i]  # e.g., "Apollo Beach"
+        if "Unnamed" not in routing_col:  # Skip "Unnamed" columns
+            CAMPUSES.append(routing_col)
+            instruction_col = all_columns[i + 1] if i + 1 < len(all_columns) else None
+            campus_columns[routing_col] = (routing_col, instruction_col)
+
     if not CAMPUSES:
         st.error("No campuses found in the spreadsheet. Please ensure the spreadsheet has campus columns.")
         return
@@ -234,7 +250,7 @@ def main():
 
             # Process the file
             with st.spinner(f"Processing {original_filename} for {selected_campus}..."):
-                output_bytes, output_filename = process_als(file_bytes, original_filename, selected_campus, df)
+                output_bytes, output_filename = process_als(file_bytes, original_filename, selected_campus, df, campus_columns)
 
             if output_bytes and output_filename:
                 processed_count += 1
