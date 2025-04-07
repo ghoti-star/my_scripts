@@ -29,22 +29,52 @@ def load_spreadsheet_data_csv():
         st.error(f"Error: Failed to load spreadsheet data: {str(e)}")
         return None
 
-# Function to map output channels to Ableton Live targets
-def map_channel_to_target(channel):
-    channel_map = {
-        "1": {"Target": "AudioOut/External/M0", "LowerDisplayString": "1"},
-        "2": {"Target": "AudioOut/External/M1", "LowerDisplayString": "2"},
-        "3/4": {"Target": "AudioOut/External/S1", "LowerDisplayString": "3/4"},
-        "5/6": {"Target": "AudioOut/External/S2", "LowerDisplayString": "5/6"},
-        "7/8": {"Target": "AudioOut/External/S3", "LowerDisplayString": "7/8"},
-    }
+# Function to dynamically generate the channel map based on routing values in the spreadsheet
+def generate_channel_map(df, campus_columns):
+    channel_map = {}
+    # Collect all unique routing values from the routing columns
+    all_channels = set()
+    for campus, (routing_col, _) in campus_columns.items():
+        if routing_col in df.columns:
+            channels = df[routing_col].dropna().astype(str).unique()
+            all_channels.update(channels)
+
+    # Generate the channel map based on the unique channels
+    stereo_count = 1  # Start counting stereo pairs (S1, S2, ...)
+    for channel in sorted(all_channels):
+        channel = channel.strip()
+        if not channel:
+            continue  # Skip empty channels
+
+        # Check if the channel is a mono channel (e.g., "1", "2") or stereo (e.g., "3/4")
+        if "/" in channel:  # Stereo channel, e.g., "3/4", "9/10"
+            channel_map[channel] = {
+                "Target": f"AudioOut/External/S{stereo_count}",
+                "LowerDisplayString": channel
+            }
+            stereo_count += 1
+        else:  # Mono channel, e.g., "1", "2"
+            try:
+                channel_num = int(channel) - 1  # Convert to zero-based index (e.g., "1" -> M0)
+                channel_map[channel] = {
+                    "Target": f"AudioOut/External/M{channel_num}",
+                    "LowerDisplayString": channel
+                }
+            except ValueError:
+                st.warning(f"Invalid channel format '{channel}' in spreadsheet. Skipping this channel.")
+                continue
+
+    return channel_map
+
+# Function to map output channels to Ableton Live targets using the dynamic channel map
+def map_channel_to_target(channel, channel_map):
     if channel not in channel_map:
         st.warning(f"Unknown channel '{channel}' in spreadsheet. Skipping track.")
         return None
     return channel_map[channel]
 
 # Function to process an .als file based on the selected campus
-def process_als(input_file_bytes, original_filename, selected_campus, df, campus_columns):
+def process_als(input_file_bytes, original_filename, selected_campus, df, campus_columns, channel_map):
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_xml = os.path.join(temp_dir, "temp.xml")
@@ -95,7 +125,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                         st.warning(f"Invalid dB value '{instruction}' for track '{track_name}' in campus '{selected_campus}'. Skipping volume adjustment.")
 
                 # Map the channel to Ableton Live target
-                routing_dict = map_channel_to_target(channel)
+                routing_dict = map_channel_to_target(channel, channel_map)
                 if routing_dict is None:
                     continue  # Skip if channel is unknown
 
@@ -223,6 +253,9 @@ def main():
         st.error("No campuses found in the spreadsheet. Please ensure the spreadsheet has campus columns.")
         return
 
+    # Generate the channel map dynamically based on the spreadsheet
+    channel_map = generate_channel_map(df, campus_columns)
+
     # Campus selection dropdown
     selected_campus = st.selectbox("Select Campus", CAMPUSES)
 
@@ -242,7 +275,7 @@ def main():
 
             # Process the file
             with st.spinner(f"Processing {original_filename} for {selected_campus}..."):
-                output_bytes, output_filename = process_als(file_bytes, original_filename, selected_campus, df, campus_columns)
+                output_bytes, output_filename = process_als(file_bytes, original_filename, selected_campus, df, campus_columns, channel_map)
 
             if output_bytes and output_filename:
                 processed_count += 1
