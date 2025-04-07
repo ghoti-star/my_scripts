@@ -14,9 +14,8 @@ from io import StringIO
 def load_spreadsheet_data_csv():
     try:
         url = "https://docs.google.com/spreadsheets/d/1v-ijfylVlbJB3qLJu-dXbFgdbeuWgJjOIj2umhcE9Q8/export?format=csv&gid=0"
-        # Fetch the CSV with a 10-second timeout
         response = requests.get(url, timeout=10)
-        response.raise_for_status()  # Raise an error if the request fails
+        response.raise_for_status()
         data = StringIO(response.text)
         df = pd.read_csv(data)
         return df
@@ -64,124 +63,126 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
             routing_col, instruction_col = campus_columns[selected_campus]
 
             # Process each track
-            for track_type in ["AudioTrack", "MidiTrack", "GroupTrack"]:
-                for track in root.findall(f".//{track_type}"):
-                    name_elem = track.find(".//Name/EffectiveName")
-                    track_name = name_elem.get("Value") if name_elem is not None else None
+            for track in root.findall(".//AudioTrack") + root.findall(".//MidiTrack") + root.findall(".//GroupTrack"):
+                name_elem = track.find(".//Name/EffectiveName")
+                track_name = name_elem.get("Value") if name_elem is not None else None
 
-                    if not track_name or track_name.strip() == "":
-                        continue  # Skip silently
+                if not track_name or track_name.strip() == "":
+                    continue  # Skip silently
 
-                    # Look up the track in the DataFrame
-                    track_row = df[df["Track Name"].str.upper() == track_name.upper()]
-                    if track_row.empty:
-                        continue  # Skip if track not found in spreadsheet
+                # Look up the track in the DataFrame
+                track_row = df[df["Track Name"].str.upper() == track_name.upper()]
+                if track_row.empty:
+                    continue  # Skip if track not found in spreadsheet
 
-                    # Get the routing channel and instruction for the selected campus
-                    routing = track_row.iloc[0][routing_col]
-                    instruction = track_row.iloc[0][instruction_col] if instruction_col in track_row else ""
+                # Get the routing channel and instruction for the selected campus
+                routing = track_row.iloc[0][routing_col]
+                instruction = track_row.iloc[0][instruction_col] if instruction_col in track_row else ""
 
-                    if not routing:
-                        continue  # Skip if no routing specified
+                if not routing:
+                    continue  # Skip if no routing specified
 
-                    # Parse the routing and instruction
-                    channel = str(routing).strip()
-                    instruction = str(instruction).strip() if instruction else ""
-                    instruction_parts = instruction.split()
-                    mute = any(part.lower() == "mute" for part in instruction_parts)
-                    # Look for a dB value (e.g., "-10dB", "-6dB")
-                    db_reduction = None
-                    for part in instruction_parts:
-                        if part.lower().endswith("db"):
-                            try:
-                                db_reduction = float(part.lower().replace("db", ""))
-                                break
-                            except ValueError:
-                                continue
-                    # Fallback for "Turn down"
-                    if db_reduction is None and any(part.lower() == "turn down" for part in instruction_parts):
-                        db_reduction = -10  # Default to -10 dB
+                # Parse the routing and instruction
+                channel = str(routing).strip()
+                instruction = str(instruction).strip() if instruction else ""
+                mute = instruction.lower() == "mute"
+                # Parse the instruction as a dB value (if it's a number)
+                db_reduction = None
+                if instruction and not mute:  # If not empty and not "Mute"
+                    try:
+                        db_reduction = float(instruction)  # e.g., "3", "-10"
+                    except ValueError:
+                        st.warning(f"Invalid dB value '{instruction}' for track '{track_name}' in campus '{selected_campus}'. Skipping volume adjustment.")
 
-                    # Map the channel to Ableton Live target
-                    routing_dict = map_channel_to_target(channel)
-                    if routing_dict is None:
-                        continue  # Skip if channel is unknown
+                # Debug: Log the parsed values
+                st.write(f"Track: {track_name}, Campus: {selected_campus}")
+                st.write(f"  Routing: {channel}")
+                st.write(f"  Instruction: {instruction}")
+                st.write(f"  Mute: {mute}")
+                st.write(f"  dB Adjustment: {db_reduction}")
 
-                    # --- Routing Logic ---
-                    device_chain = track.find("DeviceChain")
-                    if device_chain is None:
-                        device_chain = ET.SubElement(track, "DeviceChain")
+                # Map the channel to Ableton Live target
+                routing_dict = map_channel_to_target(channel)
+                if routing_dict is None:
+                    continue  # Skip if channel is unknown
 
-                    output_elem = device_chain.find("AudioOutputRouting")
-                    if output_elem is None:
-                        output_elem = ET.SubElement(device_chain, "AudioOutputRouting")
+                # --- Routing Logic ---
+                device_chain = track.find("DeviceChain")
+                if device_chain is None:
+                    device_chain = ET.SubElement(track, "DeviceChain")
+
+                output_elem = device_chain.find("AudioOutputRouting")
+                if output_elem is None:
+                    output_elem = ET.SubElement(device_chain, "AudioOutputRouting")
+                    target_elem = ET.SubElement(output_elem, "Target")
+                    upper_elem = ET.SubElement(output_elem, "UpperDisplayString")
+                    lower_elem = ET.SubElement(output_elem, "LowerDisplayString")
+                    mpe_settings = ET.SubElement(output_elem, "MpeSettings")
+                else:
+                    target_elem = output_elem.find("Target")
+                    if target_elem is None:
                         target_elem = ET.SubElement(output_elem, "Target")
+                    upper_elem = output_elem.find("UpperDisplayString")
+                    if upper_elem is None:
                         upper_elem = ET.SubElement(output_elem, "UpperDisplayString")
+                    lower_elem = output_elem.find("LowerDisplayString")
+                    if lower_elem is None:
                         lower_elem = ET.SubElement(output_elem, "LowerDisplayString")
+                    mpe_settings = output_elem.find("MpeSettings")
+                    if mpe_settings is None:
                         mpe_settings = ET.SubElement(output_elem, "MpeSettings")
-                    else:
-                        target_elem = output_elem.find("Target")
-                        if target_elem is None:
-                            target_elem = ET.SubElement(output_elem, "Target")
-                        upper_elem = output_elem.find("UpperDisplayString")
-                        if upper_elem is None:
-                            upper_elem = ET.SubElement(output_elem, "UpperDisplayString")
-                        lower_elem = output_elem.find("LowerDisplayString")
-                        if lower_elem is None:
-                            lower_elem = ET.SubElement(output_elem, "LowerDisplayString")
-                        mpe_settings = output_elem.find("MpeSettings")
-                        if mpe_settings is None:
-                            mpe_settings = ET.SubElement(output_elem, "MpeSettings")
 
-                    target_elem.set("Value", routing_dict["Target"])
-                    upper_elem.set("Value", "Ext. Out")
-                    lower_elem.set("Value", routing_dict["LowerDisplayString"])
-                    if not mpe_settings.text and not list(mpe_settings):
-                        pass
-                    else:
-                        mpe_settings.text = None
-                        mpe_settings.clear()
+                target_elem.set("Value", routing_dict["Target"])
+                upper_elem.set("Value", "Ext. Out")
+                lower_elem.set("Value", routing_dict["LowerDisplayString"])
+                if not mpe_settings.text and not list(mpe_settings):
+                    pass
+                else:
+                    mpe_settings.text = None
+                    mpe_settings.clear()
 
-                    # --- Mute Logic ---
-                    mixer = device_chain.find("Mixer")
-                    if mixer is None:
-                        mixer = ET.SubElement(device_chain, "Mixer")
+                # --- Mute Logic ---
+                mixer = device_chain.find("Mixer")
+                if mixer is None:
+                    mixer = ET.SubElement(device_chain, "Mixer")
 
-                    speaker = mixer.find("Speaker")
-                    if speaker is None:
-                        speaker = ET.SubElement(mixer, "Speaker")
+                speaker = mixer.find("Speaker")
+                if speaker is None:
+                    speaker = ET.SubElement(mixer, "Speaker")
+                    manual_speaker = ET.SubElement(speaker, "Manual")
+                    manual_speaker.set("Value", "true")
+                else:
+                    manual_speaker = speaker.find("Manual")
+                    if manual_speaker is None:
                         manual_speaker = ET.SubElement(speaker, "Manual")
                         manual_speaker.set("Value", "true")
-                    else:
-                        manual_speaker = speaker.find("Manual")
-                        if manual_speaker is None:
-                            manual_speaker = ET.SubElement(speaker, "Manual")
-                            manual_speaker.set("Value", "true")
 
-                    if mute:
-                        manual_speaker.set("Value", "false")
+                if mute:
+                    manual_speaker.set("Value", "false")
 
-                    # --- Volume Adjustment Logic ---
-                    volume = mixer.find("Volume")
-                    if volume is None:
-                        volume = ET.SubElement(mixer, "Volume")
+                # --- Volume Adjustment Logic ---
+                volume = mixer.find("Volume")
+                if volume is None:
+                    volume = ET.SubElement(mixer, "Volume")
+                    manual_volume = ET.SubElement(volume, "Manual")
+                    manual_volume.set("Value", "0.794328")  # Default to 0 dB
+                else:
+                    manual_volume = volume.find("Manual")
+                    if manual_volume is None:
                         manual_volume = ET.SubElement(volume, "Manual")
-                        manual_volume.set("Value", "0.794328")  # Default to 0 dB
-                    else:
-                        manual_volume = volume.find("Manual")
-                        if manual_volume is None:
-                            manual_volume = ET.SubElement(volume, "Manual")
-                            manual_volume.set("Value", "0.794328")
+                        manual_volume.set("Value", "0.794328")
 
-                    if db_reduction is not None:
-                        current_volume = float(manual_volume.get("Value"))
-                        # Convert current volume to dB
-                        current_db = 20 * math.log10(current_volume) if current_volume > 0 else -float('inf')
-                        # Apply the specified dB reduction
-                        new_db = current_db + db_reduction  # db_reduction is negative (e.g., -10)
-                        # Convert back to linear
-                        new_volume = 10 ** (new_db / 20) if new_db > -float('inf') else 0.0
-                        manual_volume.set("Value", str(new_volume))
+                if db_reduction is not None:
+                    current_volume = float(manual_volume.get("Value"))
+                    # Convert current volume to dB
+                    current_db = 20 * math.log10(current_volume) if current_volume > 0 else -float('inf')
+                    # Apply the specified dB adjustment
+                    new_db = current_db + db_reduction  # Positive or negative dB
+                    # Convert back to linear
+                    new_volume = 10 ** (new_db / 20) if new_db > -float('inf') else 0.0
+                    manual_volume.set("Value", str(new_volume))
+                    # Debug: Log the volume change
+                    st.write(f"  Adjusted volume from {current_volume} ({current_db:.2f} dB) to {new_volume} ({new_db:.2f} dB)")
 
             # Save modified XML
             tree.write(temp_modified_xml, encoding="utf-8", xml_declaration=True)
@@ -216,13 +217,12 @@ def main():
         return
 
     # Extract campus names and their corresponding routing/instruction columns
-    # Each campus spans two columns: routing (e.g., B) and instruction (e.g., C)
     all_columns = df.columns[1:]  # Skip "Track Name" column
     CAMPUSES = []
     campus_columns = {}
     for i in range(0, len(all_columns), 2):  # Step by 2 to pair columns
-        routing_col = all_columns[i]  # e.g., "Apollo Beach"
-        if "Unnamed" not in routing_col:  # Skip "Unnamed" columns
+        routing_col = all_columns[i]
+        if "Unnamed" not in routing_col:
             CAMPUSES.append(routing_col)
             instruction_col = all_columns[i + 1] if i + 1 < len(all_columns) else None
             campus_columns[routing_col] = (routing_col, instruction_col)
