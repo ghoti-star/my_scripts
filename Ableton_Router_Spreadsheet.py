@@ -6,16 +6,28 @@ import math
 import streamlit as st
 from io import BytesIO
 import pandas as pd
+import requests
+from io import StringIO
 
 # Function to read the Google Sheet via CSV export
 @st.cache_data(ttl=600)  # Cache for 10 minutes
 def load_spreadsheet_data_csv():
     try:
         url = "https://docs.google.com/spreadsheets/d/1v-ijfylVlbJB3qLJu-dXbFgdbeuWgJjOIj2umhcE9Q8/export?format=csv&gid=0"
-        df = pd.read_csv(url)
+        # Fetch the CSV with a 10-second timeout
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Raise an error if the request fails
+        data = StringIO(response.text)
+        df = pd.read_csv(data)
         return df
+    except requests.Timeout:
+        st.error("Error: Timed out while fetching the spreadsheet. Please try again later.")
+        return None
+    except requests.RequestException as e:
+        st.error(f"Error: Failed to fetch spreadsheet data: {str(e)}")
+        return None
     except Exception as e:
-        st.error(f"Failed to load spreadsheet data: {str(e)}")
+        st.error(f"Error: Failed to load spreadsheet data: {str(e)}")
         return None
 
 # Function to map output channels to Ableton Live targets
@@ -26,9 +38,11 @@ def map_channel_to_target(channel):
         "3/4": {"Target": "AudioOut/External/S1", "LowerDisplayString": "3/4"},
         "5/6": {"Target": "AudioOut/External/S2", "LowerDisplayString": "5/6"},
         "7/8": {"Target": "AudioOut/External/S3", "LowerDisplayString": "7/8"},
-        "7/0": {"Target": "AudioOut/External/S3", "LowerDisplayString": "7/8"}  # Assuming "7/0" is a typo for "7/8"
     }
-    return channel_map.get(channel, {"Target": "AudioOut/External/M0", "LowerDisplayString": "1"})  # Default to channel 1
+    if channel not in channel_map:
+        st.warning(f"Unknown channel '{channel}' in spreadsheet. Skipping track.")
+        return None
+    return channel_map[channel]
 
 # Function to process an .als file based on the selected campus
 def process_als(input_file_bytes, original_filename, selected_campus, df):
@@ -65,14 +79,27 @@ def process_als(input_file_bytes, original_filename, selected_campus, df):
                     if not settings:
                         continue  # Skip if no settings for this campus
 
-                    # Parse the settings (e.g., "5/6 Mute", "5/6 Turn down", "1")
+                    # Parse the settings (e.g., "5/6 Mute", "5/6 -10dB", "1")
                     settings_parts = settings.split()
                     channel = settings_parts[0]  # e.g., "5/6"
-                    mute = "Mute" in settings_parts
-                    turn_down = "Turn down" in settings_parts or "Turn Down" in settings_parts
+                    mute = any(part.lower() == "mute" for part in settings_parts)  # Case-insensitive
+                    # Look for a dB value (e.g., "-10dB", "-6dB")
+                    db_reduction = None
+                    for part in settings_parts:
+                        if part.lower().endswith("db"):
+                            try:
+                                db_reduction = float(part.lower().replace("db", ""))
+                                break
+                            except ValueError:
+                                continue
+                    # Fallback for "Turn down" (for backward compatibility until spreadsheet is updated)
+                    if db_reduction is None and any(part.lower() == "turn down" for part in settings_parts):
+                        db_reduction = -10  # Default to -10 dB
 
                     # Map the channel to Ableton Live target
                     routing_dict = map_channel_to_target(channel)
+                    if routing_dict is None:
+                        continue  # Skip if channel is unknown
 
                     # --- Routing Logic ---
                     device_chain = track.find("DeviceChain")
@@ -140,12 +167,12 @@ def process_als(input_file_bytes, original_filename, selected_campus, df):
                             manual_volume = ET.SubElement(volume, "Manual")
                             manual_volume.set("Value", "0.794328")
 
-                    if turn_down:
+                    if db_reduction is not None:
                         current_volume = float(manual_volume.get("Value"))
                         # Convert current volume to dB
                         current_db = 20 * math.log10(current_volume) if current_volume > 0 else -float('inf')
-                        # Reduce by 10 dB
-                        new_db = current_db - 10  # Assuming -10 dB as before
+                        # Apply the specified dB reduction
+                        new_db = current_db + db_reduction  # Note: db_reduction is negative (e.g., -10)
                         # Convert back to linear
                         new_volume = 10 ** (new_db / 20) if new_db > -float('inf') else 0.0
                         manual_volume.set("Value", str(new_volume))
@@ -182,8 +209,8 @@ def main():
         st.error("Cannot proceed without spreadsheet data. Please ensure the spreadsheet is publicly viewable and the URL is correct.")
         return
 
-    # Extract campus names from the spreadsheet (excluding "Track Name" column)
-    CAMPUSES = df.columns[1:].tolist()  # Dynamically get campus names
+    # Extract campus names from the spreadsheet (excluding "Track Name" column, and skip blanks)
+    CAMPUSES = [campus for campus in df.columns[1:] if campus.strip() != ""]
     if not CAMPUSES:
         st.error("No campuses found in the spreadsheet. Please ensure the spreadsheet has campus columns.")
         return
