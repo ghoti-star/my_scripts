@@ -122,17 +122,48 @@ def calculate_semitone_difference(original_key, target_key):
 # Function to process an .als file
 def process_als(input_file_bytes, original_filename, selected_campus, df, campus_columns, channel_map, song_tuning_info):
     try:
+        # Check the size of the input file
+        input_file_bytes.seek(0, os.SEEK_END)
+        file_size = input_file_bytes.tell()
+        input_file_bytes.seek(0)
+        if file_size == 0:
+            raise ValueError("The uploaded .als file is empty.")
+
+        st.write(f"Input file size: {file_size} bytes")
+
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_xml = os.path.join(temp_dir, "temp.xml")
             temp_modified_xml = os.path.join(temp_dir, "temp_modified.xml")
 
             # Decompress .als file to XML
-            with gzip.open(input_file_bytes, "rb") as f_in:
-                with open(temp_xml, "wb") as f_out:
-                    f_out.write(f_in.read())
+            try:
+                with gzip.open(input_file_bytes, "rb") as f_in:
+                    decompressed_data = f_in.read()
+            except gzip.BadGzipFile as e:
+                raise ValueError(f"The .als file is not a valid gzip-compressed file: {str(e)}")
+
+            # Check if decompressed data is empty
+            if not decompressed_data:
+                raise ValueError("The decompressed .als file is empty.")
+
+            st.write(f"Decompressed data size: {len(decompressed_data)} bytes")
+
+            # Write decompressed data to temporary file
+            with open(temp_xml, "wb") as f_out:
+                f_out.write(decompressed_data)
+
+            # Check if the temporary file is empty
+            if os.path.getsize(temp_xml) == 0:
+                raise ValueError("The temporary XML file is empty after decompression.")
 
             # Parse XML
-            tree = ET.parse(temp_xml)
+            try:
+                tree = ET.parse(temp_xml)
+            except ET.ParseError as e:
+                # Read the first few bytes of the decompressed data for debugging
+                decompressed_data_str = decompressed_data[:100].decode("utf-8", errors="ignore")
+                raise ValueError(f"Failed to parse XML: {str(e)}. First 100 bytes of decompressed data: {decompressed_data_str}")
+
             root = tree.getroot()
 
             # Group tracks into songs
@@ -358,15 +389,54 @@ def main():
 
         for uploaded_file in uploaded_files:
             # Decompress to XML to group tracks into songs
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_xml = os.path.join(temp_dir, "temp.xml")
-                file_bytes = BytesIO(uploaded_file.read())
-                with gzip.open(file_bytes, "rb") as f_in:
+            try:
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_xml = os.path.join(temp_dir, "temp.xml")
+                    file_bytes = BytesIO(uploaded_file.read())
+                    # Check the size of the file_bytes
+                    file_bytes.seek(0, os.SEEK_END)
+                    file_size = file_bytes.tell()
+                    file_bytes.seek(0)
+                    if file_size == 0:
+                        st.error(f"Error: The uploaded file {uploaded_file.name} is empty.")
+                        continue
+
+                    st.write(f"Uploaded file size for {uploaded_file.name}: {file_size} bytes")
+
+                    # Decompress for song grouping
+                    try:
+                        with gzip.open(file_bytes, "rb") as f_in:
+                            decompressed_data = f_in.read()
+                    except gzip.BadGzipFile as e:
+                        st.error(f"Error: Failed to decompress {uploaded_file.name}: {str(e)}")
+                        continue
+
+                    if not decompressed_data:
+                        st.error(f"Error: The decompressed content of {uploaded_file.name} is empty.")
+                        continue
+
+                    st.write(f"Decompressed data size for song grouping: {len(decompressed_data)} bytes")
+
                     with open(temp_xml, "wb") as f_out:
-                        f_out.write(f_in.read())
-                tree = ET.parse(temp_xml)
-                root = tree.getroot()
-                songs = group_tracks_into_songs(root)
+                        f_out.write(decompressed_data)
+
+                    if os.path.getsize(temp_xml) == 0:
+                        st.error(f"Error: The temporary XML file for {uploaded_file.name} is empty after decompression.")
+                        continue
+
+                    try:
+                        tree = ET.parse(temp_xml)
+                    except ET.ParseError as e:
+                        decompressed_data_str = decompressed_data[:100].decode("utf-8", errors="ignore")
+                        st.error(f"Error: Failed to parse XML for song grouping in {uploaded_file.name}: {str(e)}. First 100 bytes: {decompressed_data_str}")
+                        continue
+
+                    root = tree.getroot()
+                    songs = group_tracks_into_songs(root)
+
+            except Exception as e:
+                st.error(f"Error during song grouping for {uploaded_file.name}: {str(e)}")
+                continue
 
             # Display dropdowns for each song to select original and target keys
             st.subheader(f"Set Tuning for Songs in {uploaded_file.name}")
