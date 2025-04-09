@@ -120,17 +120,22 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
 
                 # --- Routing Logic ---
                 device_chain = track.find("DeviceChain") or ET.SubElement(track, "DeviceChain")
-                output_elem = device_chain.find("AudioOutputRouting") or ET.SubElement(device_chain, "AudioOutputRouting")
 
-                target_elem = output_elem.find("Target") or ET.SubElement(output_elem, "Target")
-                upper_elem = output_elem.find("UpperDisplayString") or ET.SubElement(output_elem, "UpperDisplayString")
-                lower_elem = output_elem.find("LowerDisplayString") or ET.SubElement(output_elem, "LowerDisplayString")
-                mpe_settings = output_elem.find("MpeSettings") or ET.SubElement(output_elem, "MpeSettings")
+                # Remove any existing AudioOutputRouting to start fresh
+                existing_output = device_chain.find("AudioOutputRouting")
+                if existing_output is not None:
+                    device_chain.remove(existing_output)
+
+                # Create a new AudioOutputRouting element
+                output_elem = ET.SubElement(device_chain, "AudioOutputRouting")
+                target_elem = ET.SubElement(output_elem, "Target")
+                upper_elem = ET.SubElement(output_elem, "UpperDisplayString")
+                lower_elem = ET.SubElement(output_elem, "LowerDisplayString")
+                mpe_settings = ET.SubElement(output_elem, "MpeSettings")
 
                 target_elem.set("Value", routing_dict["Target"])
                 upper_elem.set("Value", "Ext. Out")
                 lower_elem.set("Value", routing_dict["LowerDisplayString"])
-                mpe_settings.clear()
                 mpe_settings.text = None
 
                 # Debug: Log the routing for this track
@@ -168,7 +173,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                 mime="text/xml"
             )
 
-            # Recompress to .als (aligned with library script)
+            # Recompress to .als
             output_buffer = BytesIO()
             with open(temp_modified_xml, "rb") as f_in:
                 with gzip.GzipFile(fileobj=output_buffer, mode="wb") as f_out:
@@ -177,7 +182,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
 
             base_name = os.path.splitext(original_filename)[0]
             campus_for_filename = selected_campus.replace(" ", "").replace("ñ", "n")
-            output_filename = f"{base_name}_{campus_for_filename}_routed.als"
+            output_filename = f"{base_name}_{campus_for_filename}_routed (with spreadsheet).als"
 
             return output_bytes, output_filename
 
