@@ -32,30 +32,26 @@ def load_spreadsheet_data_csv():
 # Function to dynamically generate the channel map based on routing values in the spreadsheet
 def generate_channel_map(df, campus_columns):
     channel_map = {}
-    # Collect all unique routing values from the routing columns
     all_channels = set()
     for campus, (routing_col, _) in campus_columns.items():
         if routing_col in df.columns:
             channels = df[routing_col].dropna().astype(str).unique()
             all_channels.update(channels)
 
-    # Generate the channel map based on the unique channels
-    stereo_count = 1  # Start counting stereo pairs (S1, S2, ...)
+    stereo_count = 1
     for channel in sorted(all_channels):
         channel = channel.strip()
         if not channel:
-            continue  # Skip empty channels
-
-        # Check if the channel is a mono channel (e.g., "1", "2") or stereo (e.g., "3/4")
-        if "/" in channel:  # Stereo channel, e.g., "3/4", "9/10"
+            continue
+        if "/" in channel:
             channel_map[channel] = {
                 "Target": f"AudioOut/External/S{stereo_count}",
                 "LowerDisplayString": channel
             }
             stereo_count += 1
-        else:  # Mono channel, e.g., "1", "2"
+        else:
             try:
-                channel_num = int(channel) - 1  # Convert to zero-based index (e.g., "1" -> M0)
+                channel_num = int(channel) - 1
                 channel_map[channel] = {
                     "Target": f"AudioOut/External/M{channel_num}",
                     "LowerDisplayString": channel
@@ -63,7 +59,6 @@ def generate_channel_map(df, campus_columns):
             except ValueError:
                 st.warning(f"Invalid channel format '{channel}' in spreadsheet. Skipping this channel.")
                 continue
-
     return channel_map
 
 # Function to map output channels to Ableton Live targets using the dynamic channel map
@@ -135,9 +130,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                 target_elem.set("Value", routing_dict["Target"])
                 upper_elem.set("Value", "Ext. Out")
                 lower_elem.set("Value", routing_dict["LowerDisplayString"])
-                
-                # Forcefully clear MpeSettings to match library script
-                mpe_settings.clear()  # Remove all sub-elements and attributes
+                mpe_settings.clear()
                 mpe_settings.text = None
 
                 # Debug: Log the routing for this track
@@ -154,7 +147,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                     volume = mixer.find("Volume") or ET.SubElement(mixer, "Volume")
                     manual_volume = volume.find("Manual") or ET.SubElement(volume, "Manual")
                     if manual_volume.get("Value") is None:
-                        manual_volume.set("Value", "0.794328")  # 0 dB default
+                        manual_volume.set("Value", "0.794328")
 
                     current_volume = float(manual_volume.get("Value"))
                     current_db = 20 * math.log10(current_volume) if current_volume > 0 else -float('inf')
@@ -162,20 +155,31 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                     new_volume = 10 ** (new_db / 20) if new_db > -float('inf') else 0.0
                     manual_volume.set("Value", str(new_volume))
 
-            # Save modified XML
+            # Save modified XML with explicit encoding
             tree.write(temp_modified_xml, encoding="utf-8", xml_declaration=True)
 
-            # Recompress to .als
+            # Debug: Save the intermediate XML for inspection
+            with open(temp_modified_xml, "r", encoding="utf-8") as f:
+                xml_content = f.read()
+            st.download_button(
+                label=f"Download Intermediate XML for {original_filename}",
+                data=xml_content,
+                file_name=f"{os.path.splitext(original_filename)[0]}_modified.xml",
+                mime="text/xml"
+            )
+
+            # Recompress to .als (aligned with library script)
             output_buffer = BytesIO()
             with open(temp_modified_xml, "rb") as f_in:
-                with gzip.open(output_buffer, "wb") as f_out:
+                with gzip.GzipFile(fileobj=output_buffer, mode="wb") as f_out:
                     f_out.write(f_in.read())
+            output_bytes = output_buffer.getvalue()
 
             base_name = os.path.splitext(original_filename)[0]
             campus_for_filename = selected_campus.replace(" ", "").replace("ñ", "n")
             output_filename = f"{base_name}_{campus_for_filename}_routed.als"
 
-            return output_buffer.getvalue(), output_filename
+            return output_bytes, output_filename
 
     except Exception as e:
         st.error(f"Error: Failed to process {original_filename}: {str(e)}")
@@ -186,17 +190,15 @@ def main():
     st.title("Ableton Live Router (Spreadsheet)")
     st.write("Select a campus and upload your Ableton Live (.als) files to route tracks according to the spreadsheet rules.")
 
-    # Load spreadsheet data
     df = load_spreadsheet_data_csv()
     if df is None:
         st.error("Cannot proceed without spreadsheet data. Please ensure the spreadsheet is publicly viewable and the URL is correct.")
         return
 
-    # Extract campus names and their corresponding routing/instruction columns
-    all_columns = df.columns[1:]  # Skip "Track Name" column
+    all_columns = df.columns[1:]
     CAMPUSES = []
     campus_columns = {}
-    for i in range(0, len(all_columns), 2):  # Step by 2 to pair columns
+    for i in range(0, len(all_columns), 2):
         routing_col = all_columns[i]
         if "Unnamed" not in routing_col:
             CAMPUSES.append(routing_col)
@@ -207,19 +209,14 @@ def main():
         st.error("No campuses found in the spreadsheet. Please ensure the spreadsheet has campus columns.")
         return
 
-    # Generate the channel map dynamically based on the spreadsheet
     channel_map = generate_channel_map(df, campus_columns)
 
-    # Campus selection dropdown
     selected_campus = st.selectbox("Select Campus", CAMPUSES)
-
-    # File uploader
     uploaded_files = st.file_uploader(f"Select Ableton Live (.als) Files for {selected_campus}", type=["als"], accept_multiple_files=True)
 
     if uploaded_files:
         processed_count = 0
         for uploaded_file in uploaded_files:
-            # Read the uploaded file
             file_bytes = BytesIO(uploaded_file.read())
             original_filename = uploaded_file.name
 
@@ -227,15 +224,12 @@ def main():
                 st.warning(f"Skipping {original_filename}: Not an .als file.")
                 continue
 
-            # Process the file
             with st.spinner(f"Processing {original_filename} for {selected_campus}..."):
                 output_bytes, output_filename = process_als(file_bytes, original_filename, selected_campus, df, campus_columns, channel_map)
 
             if output_bytes and output_filename:
                 processed_count += 1
                 st.success(f"Processed {original_filename} → {output_filename} for {selected_campus}")
-
-                # Provide a download button for the processed file (fixed syntax)
                 st.download_button(
                     label=f"Download {output_filename}",
                     data=output_bytes,
