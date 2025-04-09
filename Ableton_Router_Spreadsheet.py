@@ -144,7 +144,13 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                 # --- Mute Logic ---
                 mixer = device_chain.find("Mixer") or ET.SubElement(device_chain, "Mixer")
                 speaker = mixer.find("Speaker") or ET.SubElement(mixer, "Speaker")
-                manual_speaker = speaker.find("Manual") or ET.SubElement(speaker, "Manual")
+
+                # Remove any existing Manual elements to avoid duplicates
+                existing_manuals = speaker.findall("Manual")
+                for manual in existing_manuals:
+                    speaker.remove(manual)
+                # Create a single Manual element
+                manual_speaker = ET.SubElement(speaker, "Manual")
                 manual_speaker.set("Value", "false" if mute else "true")
 
                 # --- Volume Adjustment Logic ---
