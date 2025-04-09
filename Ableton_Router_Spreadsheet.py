@@ -235,10 +235,10 @@ def main():
                 processed_count += 1
                 st.success(f"Processed {original_filename} → {output_filename} for {selected_campus}")
 
-                # Provide a download button for the processed file
+                # Provide a download button for the processed file (fixed syntax)
                 st.download_button(
                     label=f"Download {output_filename}",
- capaci                    data=output_bytes,
+                    data=output_bytes,
                     file_name=output_filename,
                     mime="application/octet-stream"
                 )
