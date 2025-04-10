@@ -49,7 +49,7 @@ def generate_channel_map(df, campus_columns):
                 if first_num % 2 == 0 or second_num != first_num + 1:
                     st.warning(f"Invalid stereo pair '{channel}' in spreadsheet. Stereo pairs must start with an odd number and be consecutive (e.g., 3/4, 5/6). Skipping this channel.")
                     continue
-                # Calculate stereo pair to match library: 3/4=S1, 5/6=S2, 7/8=S3
+                # Calculate stereo pair to match Ableton: 3/4=S1, 5/6=S2, 7/8=S3
                 stereo_index = (first_num - 3) // 2 + 1  # e.g., 3 → (3-3)//2 + 1 = 1 (S1), 7 → (7-3)//2 + 1 = 3 (S3)
                 channel_map[channel] = {
                     "Target": f"AudioOut/External/S{stereo_index}",
@@ -164,9 +164,15 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                 # --- Volume Adjustment Logic ---
                 if db_reduction is not None and db_reduction != 0.0:
                     volume = mixer.find("Volume") or ET.SubElement(mixer, "Volume")
-                    manual_volume = volume.find("Manual") or ET.SubElement(volume, "Manual")
-                    if manual_volume.get("Value") is None:
-                        manual_volume.set("Value", "0.794328")
+                    
+                    # Remove any existing Manual elements to avoid duplicates
+                    existing_manuals = volume.findall("Manual")
+                    for manual in existing_manuals:
+                        volume.remove(manual)
+                    
+                    # Create a single Manual element
+                    manual_volume = ET.SubElement(volume, "Manual")
+                    manual_volume.set("Value", "0.794328")  # Default value if none exists
 
                     current_volume = float(manual_volume.get("Value"))
                     current_db = 20 * math.log10(current_volume) if current_volume > 0 else -float('inf')
