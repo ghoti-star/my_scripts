@@ -43,14 +43,21 @@ def generate_channel_map(df, campus_columns):
         if not channel:
             continue
         if "/" in channel:  # Stereo channel, e.g., "3/4", "7/8"
-            # Extract the first number (e.g., "7" from "7/8")
-            first_num = int(channel.split("/")[0])
-            # Calculate stereo pair: S1=1/2, S2=3/4, S3=5/6, S4=7/8, etc.
-            stereo_index = (first_num - 1) // 2 + 1  # e.g., 7 → (7-1)//2 + 1 = 3 (S3)
-            channel_map[channel] = {
-                "Target": f"AudioOut/External/S{stereo_index}",
-                "LowerDisplayString": channel
-            }
+            try:
+                first_num, second_num = map(int, channel.split("/"))
+                # Validate that the first number is odd and the second is the next consecutive number
+                if first_num % 2 == 0 or second_num != first_num + 1:
+                    st.warning(f"Invalid stereo pair '{channel}' in spreadsheet. Stereo pairs must start with an odd number and be consecutive (e.g., 3/4, 5/6). Skipping this channel.")
+                    continue
+                # Calculate stereo pair to match library: 3/4=S1, 5/6=S2, 7/8=S3
+                stereo_index = (first_num - 3) // 2 + 1  # e.g., 3 → (3-3)//2 + 1 = 1 (S1), 7 → (7-3)//2 + 1 = 3 (S3)
+                channel_map[channel] = {
+                    "Target": f"AudioOut/External/S{stereo_index}",
+                    "LowerDisplayString": channel
+                }
+            except ValueError:
+                st.warning(f"Invalid stereo channel format '{channel}' in spreadsheet. Expected format: 'X/Y' where X and Y are integers. Skipping this channel.")
+                continue
         else:  # Mono channel, e.g., "1", "2"
             try:
                 channel_num = int(channel) - 1  # Convert to zero-based index (e.g., "1" -> M0)
