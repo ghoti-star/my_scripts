@@ -148,7 +148,7 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                 mpe_settings.text = None
 
                 # Debug: Log the routing for this track
-                st.write(f"Track: {track_name}, Target: {routing_dict['Target']}, Lower: {routing_dict['LowerDisplayString']}")
+                ##st.write(f"Track: {track_name}, Target: {routing_dict['Target']}, Lower: {routing_dict['LowerDisplayString']}")
 
                 # --- Mute Logic ---
                 mixer = device_chain.find("Mixer") or ET.SubElement(device_chain, "Mixer")
@@ -184,14 +184,14 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
             tree.write(temp_modified_xml, encoding="utf-8", xml_declaration=True)
 
             # Debug: Save the intermediate XML for inspection
-            with open(temp_modified_xml, "r", encoding="utf-8") as f:
-                xml_content = f.read()
-            st.download_button(
-                label=f"Download Intermediate XML for {original_filename}",
-                data=xml_content,
-                file_name=f"{os.path.splitext(original_filename)[0]}_modified.xml",
-                mime="text/xml"
-            )
+            ##with open(temp_modified_xml, "r", encoding="utf-8") as f:
+               ## xml_content = f.read()
+          ##  st.download_button(
+               ## label=f"Download Intermediate XML for {original_filename}",
+              ##  data=xml_content,
+              ##  file_name=f"{os.path.splitext(original_filename)[0]}_modified.xml",
+              ##  mime="text/xml"
+           ## )
 
             # Recompress to .als
             output_buffer = BytesIO()
