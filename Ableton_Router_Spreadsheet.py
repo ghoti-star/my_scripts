@@ -147,9 +147,6 @@ def process_als(input_file_bytes, original_filename, selected_campus, df, campus
                 lower_elem.set("Value", routing_dict["LowerDisplayString"])
                 mpe_settings.text = None
 
-                # Debug: Log the routing for this track
-                st.write(f"Track: {track_name}, Target: {routing_dict['Target']}, Lower: {routing_dict['LowerDisplayString']}")
-
                 # --- Mute Logic ---
                 mixer = device_chain.find("Mixer") or ET.SubElement(device_chain, "Mixer")
                 speaker = mixer.find("Speaker") or ET.SubElement(mixer, "Speaker")
